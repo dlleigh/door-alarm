@@ -12,19 +12,38 @@ import time
 #time.sleep(5)
 
 # Define beep parameters
-BEEP_FREQUENCY = 2000  # Hz
+BEEP_FREQUENCY = 1000  # Hz
 BEEP_DURATION = 0.1    # seconds
 PAUSE_DURATION = 0.05   # seconds between beeps
 
 # Define sensor parameters
 INTER_MEASUREMENT = 3000
 TIMING_BUDGET = 200
+THRESHOLD_EXCEEDED_TIME = 10  # seconds
 
 # Define addresses
 sensors = {}
-sensors[1] = {'name': 'freezer', 'mux_port': 0}
-sensors[2] = {'name': 'left-door', 'mux_port': 1}
-sensors[3] = {'name': 'right-door', 'mux_port': 2}
+sensors[1] = {
+    'name': 'freezer', 
+    'mux_port': 0, 
+    'min_threshold': 0.7,
+    'max_threshold': 20,
+    'exceeded_since': None
+}
+sensors[2] = {
+    'name': 'left-door', 
+    'mux_port': 1, 
+    'min_threshold': 2.7,
+    'max_threshold': 20,
+    'exceeded_since': None
+}
+sensors[3] = {
+    'name': 'right-door', 
+    'mux_port': 2, 
+    'min_threshold': 2.7,
+    'max_threshold': 20,
+    'exceeded_since': None
+}
 
 def initialize_led():
     led = digitalio.DigitalInOut(board.LED)
@@ -69,8 +88,7 @@ def configure_sensors(sensors):
         info['sensor'] = adafruit_vl53l4cd.VL53L4CD(mux[info['mux_port']])
         initialize_sensor(info['sensor'])
 
-def sensor_loop():
-    # Main loop to read sensors
+def sensor_loop(audio_pwm):
     print("\nStarting measurement loop...")
     while len(sensors) > 0:
         for sensor_num, info in sensors.items():
@@ -80,23 +98,33 @@ def sensor_loop():
                     pass
                 distance = sensor.distance
                 print(f"Sensor {sensor_num} ({info['name']}): {distance} cm")
+                
+                # Check if distance is between min and max thresholds
+                if info['min_threshold'] < distance < info['max_threshold']:
+                    if info['exceeded_since'] is None:
+                        info['exceeded_since'] = time.monotonic()
+                    elif time.monotonic() - info['exceeded_since'] > THRESHOLD_EXCEEDED_TIME:
+                        print(f"Alert! {info['name']} in warning zone too long!")
+                        beep(audio_pwm, BEEP_FREQUENCY, BEEP_DURATION, 3)
+                else:
+                    info['exceeded_since'] = None
+                
                 sensor.clear_interrupt()
             except Exception as e:
                 print(f"Error reading sensor {sensor_num}: {e}")
-        time.sleep(5)
-
-audio_pwm = initialize_audio()
-beep(audio_pwm, BEEP_FREQUENCY, BEEP_DURATION, 2)
+        time.sleep(1)
 
 # Main program
 def main():
+    audio_pwm = initialize_audio()
+    beep(audio_pwm, BEEP_FREQUENCY, BEEP_DURATION, 2)
     print("Initializing sensors...")
     configure_sensors(sensors)
     print("Sensors initialized successfully.")
     beep(audio_pwm, BEEP_FREQUENCY, BEEP_DURATION, 2)
 
     # Start the sensor loop
-    sensor_loop()
+    sensor_loop(audio_pwm)
 
 # Run the main program
 main()
