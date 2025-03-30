@@ -26,21 +26,21 @@ sensors = {}
 sensors[1] = {
     'name': 'freezer', 
     'mux_port': 0, 
-    'min_threshold': 0.7,
+    'min_threshold': 1.0,
     'max_threshold': 20,
     'exceeded_since': None
 }
 sensors[2] = {
     'name': 'left-door', 
     'mux_port': 1, 
-    'min_threshold': 2.7,
+    'min_threshold': 2.8,
     'max_threshold': 20,
     'exceeded_since': None
 }
 sensors[3] = {
     'name': 'right-door', 
     'mux_port': 2, 
-    'min_threshold': 2.7,
+    'min_threshold': 2.4,
     'max_threshold': 20,
     'exceeded_since': None
 }
