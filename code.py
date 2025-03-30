@@ -19,7 +19,7 @@ PAUSE_DURATION = 0.05   # seconds between beeps
 # Define sensor parameters
 INTER_MEASUREMENT = 3000
 TIMING_BUDGET = 200
-THRESHOLD_EXCEEDED_TIME = 10  # seconds
+THRESHOLD_EXCEEDED_TIME = 20  # seconds
 
 # Define addresses
 sensors = {}
@@ -33,14 +33,14 @@ sensors[1] = {
 sensors[2] = {
     'name': 'left-door', 
     'mux_port': 1, 
-    'min_threshold': 2.8,
+    'min_threshold': 2.7,
     'max_threshold': 20,
     'exceeded_since': None
 }
 sensors[3] = {
     'name': 'right-door', 
     'mux_port': 2, 
-    'min_threshold': 2.4,
+    'min_threshold': 2.3,
     'max_threshold': 20,
     'exceeded_since': None
 }
