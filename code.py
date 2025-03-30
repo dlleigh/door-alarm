@@ -34,7 +34,7 @@ sensors = {}
 sensors[1] = {
     'name': 'freezer', 
     'mux_port': 0, 
-    'min_threshold': 1.2,
+    'min_threshold': 2.0,
     'max_threshold': 20,
     'exceeded_since': None
 }
