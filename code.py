@@ -7,6 +7,7 @@ import busio
 import pwmio
 import os
 import audiocore
+import analogio
 import time
 
 #time.sleep(5)
@@ -21,12 +22,19 @@ INTER_MEASUREMENT = 3000
 TIMING_BUDGET = 200
 THRESHOLD_EXCEEDED_TIME = 20  # seconds
 
+# Add battery monitoring constants
+BATTERY_LOW_THRESHOLD = 3.4  # Volts
+BATTERY_CHECK_INTERVAL = 60  # seconds
+BATTERY_LOW_ALARM_FREQUENCY = 2000  # Hz
+BATTERY_LOW_BEEP_DURATION = 0.1  # seconds
+BATTERY_ALARM_MINIMUM_INTERVAL = 600  # 10 minutes in seconds
+
 # Define addresses
 sensors = {}
 sensors[1] = {
     'name': 'freezer', 
     'mux_port': 0, 
-    'min_threshold': 1.0,
+    'min_threshold': 1.2,
     'max_threshold': 20,
     'exceeded_since': None
 }
@@ -40,7 +48,7 @@ sensors[2] = {
 sensors[3] = {
     'name': 'right-door', 
     'mux_port': 2, 
-    'min_threshold': 2.3,
+    'min_threshold': 2.2,
     'max_threshold': 20,
     'exceeded_since': None
 }
@@ -88,9 +96,30 @@ def configure_sensors(sensors):
         info['sensor'] = adafruit_vl53l4cd.VL53L4CD(mux[info['mux_port']])
         initialize_sensor(info['sensor'])
 
+def read_battery_voltage():
+    voltage_pin = analogio.AnalogIn(board.A3)  # Changed from VOLTAGE_MONITOR to A3
+    voltage = (voltage_pin.value * 3.3) / 65536 * 2
+    voltage_pin.deinit()
+    return voltage
+
 def sensor_loop(audio_pwm):
     print("\nStarting measurement loop...")
+    last_battery_check = 0
+    last_battery_alarm = 0  # Track when we last sounded the battery alarm
+    is_battery_low = False
+    
     while len(sensors) > 0:
+        current_time = time.monotonic()
+        
+        # Check battery periodically
+        # if current_time - last_battery_check > BATTERY_CHECK_INTERVAL:
+        #     voltage = read_battery_voltage()
+        #     print(f"Battery Voltage: {voltage:.2f}V")
+        #     last_battery_check = current_time
+        #     is_battery_low = voltage < BATTERY_LOW_THRESHOLD
+        #     if is_battery_low:
+        #         print("Warning: Low battery!")
+
         for sensor_num, info in sensors.items():
             try:
                 sensor = info["sensor"]
@@ -106,6 +135,12 @@ def sensor_loop(audio_pwm):
                     elif time.monotonic() - info['exceeded_since'] > THRESHOLD_EXCEEDED_TIME:
                         print(f"Alert! {info['name']} in warning zone too long!")
                         beep(audio_pwm, BEEP_FREQUENCY, BEEP_DURATION, 3)
+                elif distance > info['max_threshold'] and is_battery_low:
+                    # Check if enough time has passed since last battery alarm
+                    if current_time - last_battery_alarm > BATTERY_ALARM_MINIMUM_INTERVAL:
+                        print(f"Alert! {info['name']} exceeded max threshold with low battery!")
+                        beep(audio_pwm, BATTERY_LOW_ALARM_FREQUENCY, BATTERY_LOW_BEEP_DURATION, 2)
+                        last_battery_alarm = current_time
                 else:
                     info['exceeded_since'] = None
                 
