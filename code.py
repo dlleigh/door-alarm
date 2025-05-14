@@ -141,6 +141,7 @@ def sensor_loop(audio_pwm):
                         print(f"Alert! {info['name']} in warning zone too long!")
                         beep(audio_pwm, BEEP_FREQUENCY, BEEP_DURATION, 3)
                 elif distance > info['max_threshold'] and is_battery_low:
+                    # Check if enough time has passed since last battery alarm
                     if current_time - last_battery_alarm > BATTERY_ALARM_MINIMUM_INTERVAL:
                         print(f"Alert! {info['name']} exceeded max threshold with low battery!")
                         beep(audio_pwm, BATTERY_LOW_ALARM_FREQUENCY, BATTERY_LOW_BEEP_DURATION, 3)
