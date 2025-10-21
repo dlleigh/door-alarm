@@ -4,7 +4,6 @@ import digitalio
 import adafruit_vl53l4cd
 import adafruit_tca9548a
 import pwmio
-import analogio
 import time
 
 #time.sleep(5)
@@ -17,37 +16,33 @@ PAUSE_DURATION = 0.05   # seconds between beeps
 # Define sensor parameters
 INTER_MEASUREMENT = 3000
 TIMING_BUDGET = 200
-THRESHOLD_EXCEEDED_TIME = 20  # seconds
-
-# Add battery monitoring constants
-BATTERY_LOW_THRESHOLD = 3.4  # Volts
-BATTERY_CHECK_INTERVAL = 60  # seconds
-BATTERY_LOW_ALARM_FREQUENCY = 500  # Hz
-BATTERY_LOW_BEEP_DURATION = 0.1  # seconds
-BATTERY_ALARM_MINIMUM_INTERVAL = 600  # 10 minutes in seconds
+THRESHOLD_EXCEEDED_TIME = 40  # seconds
+READINGS_WINDOW = 5  # Number of readings to average
 
 # Define addresses
 sensors = {}
-sensors[1] = {
-    'name': 'freezer', 
-    'mux_port': 0, 
-    'min_threshold': 2.0,
-    'max_threshold': 20,
-    'exceeded_since': None
-}
+# sensors[1] = {
+#     'name': 'freezer', 
+#     'mux_port': 0, 
+#     'min_threshold': 2.0,
+#     'max_threshold': 20,
+#     'exceeded_since': None
+# }
 sensors[2] = {
-    'name': 'left-door', 
-    'mux_port': 1, 
+    'name': 'left-door',
+    'mux_port': 1,
     'min_threshold': 2.7,
     'max_threshold': 20,
-    'exceeded_since': None
+    'exceeded_since': None,
+    'readings': []
 }
 sensors[3] = {
-    'name': 'right-door', 
-    'mux_port': 2, 
-    'min_threshold': 2.2,
+    'name': 'right-door',
+    'mux_port': 2,
+    'min_threshold': 2.1,
     'max_threshold': 20,
-    'exceeded_since': None
+    'exceeded_since': None,
+    'readings': []
 }
 
 def initialize_led():
@@ -68,8 +63,8 @@ def initialize_audio():
     return audio_pwm
 
 def beep(audio_pwm,frequency, duration, count):
+    """Generate a beep sound at the specified frequency for the given duration."""
     for _ in range(count):
-        """Generate a beep sound at the specified frequency for the given duration."""
         audio_pwm.frequency = frequency
         audio_pwm.duty_cycle = 32767  # 50% duty cycle (32767 is half of 65535)
         time.sleep(duration)
@@ -104,54 +99,69 @@ def configure_sensors(sensors):
         info['sensor'] = adafruit_vl53l4cd.VL53L4CD(mux[info['mux_port']])
         initialize_sensor(info['sensor'])
 
-def read_battery_voltage():
-    voltage_pin = analogio.AnalogIn(board.A1)  # Changed from VOLTAGE_MONITOR to A3
-    voltage = (voltage_pin.value * 3.3) / 65536 * 2
-    voltage_pin.deinit()
-    return voltage
-
 def sensor_loop(audio_pwm):
     print("\nStarting measurement loop...")
-    last_battery_check = 0
-    last_battery_alarm = 0
-    is_battery_low = False
+    # Initialize timers to current time to ensure first check/print occurs after the interval
+    
+    last_alert_details = None
+    # last_alert_print_time is for printing status every minute
+    last_alert_print_time = time.monotonic() # For printing status every minute
     
     while len(sensors) > 0:
         current_time = time.monotonic()
         
-        # Check battery periodically
-        if current_time - last_battery_check > BATTERY_CHECK_INTERVAL:
-            voltage = read_battery_voltage()
-            print(f"Battery Voltage: {voltage:.2f}V")
-            last_battery_check = current_time
-            is_battery_low = voltage < BATTERY_LOW_THRESHOLD
-            if is_battery_low:
-                print("Warning: Low battery!")
-
+        # Periodic status print (every minute)
+        if current_time - last_alert_print_time >= 60.0:  # 60 seconds
+            if last_alert_details:
+                details = last_alert_details  # Alias for brevity
+                time_since_alert = current_time - details['time']
+                print("Status update: Last alert:")
+                print(f"  Sensor: '{details['sensor_name']}'")
+                print(f"  Reason: '{details['reason']}'")
+                print(f"  Distance: {details['distance']:.1f} cm")
+                print(f"  Alert recorded at monotonic time: {details['time']:.0f} (occurred {time_since_alert:.0f}s ago).")
+            else:
+                print("Status update: No alerts recorded since startup.")
+            last_alert_print_time = current_time
+        
         for sensor_num, info in sensors.items():
             try:
                 distance = read_sensor(info["sensor"])
-                print(f"Sensor {sensor_num} ({info['name']}): {distance} cm")
-                
-                # Check if distance is between min and max thresholds
-                if info['min_threshold'] < distance < info['max_threshold']:
+
+                # If reading is clearly below min_threshold (door definitely closed), reset the buffer
+                if distance < info['min_threshold']:
+                    info['readings'] = []
+                    info['exceeded_since'] = None
+
+                # Update running average
+                info['readings'].append(distance)
+                if len(info['readings']) > READINGS_WINDOW:
+                    info['readings'].pop(0)
+
+                # Calculate average
+                avg_distance = sum(info['readings']) / len(info['readings'])
+
+                print(f"Sensor {sensor_num} ({info['name']}): {distance} cm (avg: {avg_distance:.1f} cm)")
+
+                # Check if average distance is between min and max thresholds
+                if info['min_threshold'] < avg_distance < info['max_threshold']:
                     if info['exceeded_since'] is None:
                         info['exceeded_since'] = time.monotonic()
                     elif time.monotonic() - info['exceeded_since'] > THRESHOLD_EXCEEDED_TIME:
                         print(f"Alert! {info['name']} in warning zone too long!")
                         beep(audio_pwm, BEEP_FREQUENCY, BEEP_DURATION, 3)
-                elif distance > info['max_threshold'] and is_battery_low:
-                    # Check if enough time has passed since last battery alarm
-                    if current_time - last_battery_alarm > BATTERY_ALARM_MINIMUM_INTERVAL:
-                        print(f"Alert! {info['name']} exceeded max threshold with low battery!")
-                        beep(audio_pwm, BATTERY_LOW_ALARM_FREQUENCY, BATTERY_LOW_BEEP_DURATION, 3)
-                        last_battery_alarm = current_time
+                        last_alert_details = {
+                            'sensor_name': info['name'],
+                            'reason': 'In warning zone too long',
+                            'distance': avg_distance,
+                            'time': current_time
+                        }
                 else:
                     info['exceeded_since'] = None
-                
+
             except Exception as e:
                 print(f"Error reading sensor {sensor_num}: {e}")
-        time.sleep(10)
+        #time.sleep(5)
 
 # Main program
 def main():
