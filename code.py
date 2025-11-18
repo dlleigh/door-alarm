@@ -15,7 +15,7 @@ PAUSE_DURATION = 0.05   # seconds between beeps
 
 # Define sensor parameters
 INTER_MEASUREMENT = 3000
-TIMING_BUDGET = 200
+TIMING_BUDGET =200
 THRESHOLD_EXCEEDED_TIME = 40  # seconds
 READINGS_WINDOW = 5  # Number of readings to average
 
@@ -31,7 +31,7 @@ sensors = {}
 sensors[2] = {
     'name': 'left-door',
     'mux_port': 1,
-    'min_threshold': 2.7,
+    'min_threshold': 3.0,
     'max_threshold': 20,
     'exceeded_since': None,
     'readings': []
@@ -39,7 +39,7 @@ sensors[2] = {
 sensors[3] = {
     'name': 'right-door',
     'mux_port': 2,
-    'min_threshold': 2.1,
+    'min_threshold': 1.9,
     'max_threshold': 20,
     'exceeded_since': None,
     'readings': []
@@ -77,6 +77,7 @@ def initialize_sensor(sensor):
     # Remove start_ranging() from here since we'll call it before each reading
     sensor.inter_measurement = INTER_MEASUREMENT
     sensor.timing_budget = TIMING_BUDGET
+    sensor.distance_mode = 1  # 1 = short (up to 1.3m), 2 = long (up to 4m)
 
 def read_sensor(sensor):
     """Helper function to read a single sensor with proper power management"""
@@ -128,10 +129,18 @@ def sensor_loop(audio_pwm):
             try:
                 distance = read_sensor(info["sensor"])
 
-                # If reading is clearly below min_threshold (door definitely closed), reset the buffer
-                if distance < info['min_threshold']:
-                    info['readings'] = []
-                    info['exceeded_since'] = None
+                # Skip invalid readings
+                if info["sensor"].range_status != 0:
+                    print(f"Sensor {sensor_num} ({info['name']}): invalid reading (status={info['sensor'].range_status}), skipping")
+                    continue
+
+                # If reading is clearly below min_threshold (door definitely closed) and we currently have
+                # readings in the warning zone, reset the buffer to immediately respond to door closing
+                if distance < info['min_threshold'] and len(info['readings']) > 0:
+                    avg_distance = sum(info['readings']) / len(info['readings'])
+                    if avg_distance >= info['min_threshold']:
+                        info['readings'] = []
+                        info['exceeded_since'] = None
 
                 # Update running average
                 info['readings'].append(distance)
@@ -141,7 +150,9 @@ def sensor_loop(audio_pwm):
                 # Calculate average
                 avg_distance = sum(info['readings']) / len(info['readings'])
 
-                print(f"Sensor {sensor_num} ({info['name']}): {distance} cm (avg: {avg_distance:.1f} cm)")
+                # Format readings buffer for display
+                readings_str = '[' + ', '.join(f'{r:.1f}' for r in info['readings']) + ']'
+                print(f"Sensor {sensor_num} ({info['name']}): {distance} cm (avg: {avg_distance:.1f} cm, buffer: {readings_str})")
 
                 # Check if average distance is between min and max thresholds
                 if info['min_threshold'] < avg_distance < info['max_threshold']:
@@ -161,7 +172,7 @@ def sensor_loop(audio_pwm):
 
             except Exception as e:
                 print(f"Error reading sensor {sensor_num}: {e}")
-        #time.sleep(5)
+        time.sleep(0.5)
 
 # Main program
 def main():
