@@ -16,8 +16,7 @@ PAUSE_DURATION = 0.05   # seconds between beeps
 # Define sensor parameters
 INTER_MEASUREMENT = 3000
 TIMING_BUDGET =200
-THRESHOLD_EXCEEDED_TIME = 40  # seconds
-READINGS_WINDOW = 5  # Number of readings to average
+THRESHOLD_EXCEEDED_TIME = 90  # seconds
 
 # Define addresses
 sensors = {}
@@ -33,16 +32,14 @@ sensors[2] = {
     'mux_port': 1,
     'min_threshold': 3.0,
     'max_threshold': 20,
-    'exceeded_since': None,
-    'readings': []
+    'exceeded_since': None
 }
 sensors[3] = {
     'name': 'right-door',
     'mux_port': 2,
-    'min_threshold': 1.9,
+    'min_threshold': 2.2,
     'max_threshold': 20,
-    'exceeded_since': None,
-    'readings': []
+    'exceeded_since': None
 }
 
 def initialize_led():
@@ -134,40 +131,23 @@ def sensor_loop(audio_pwm):
                     print(f"Sensor {sensor_num} ({info['name']}): invalid reading (status={info['sensor'].range_status}), skipping")
                     continue
 
-                # If reading is clearly below min_threshold (door definitely closed) and we currently have
-                # readings in the warning zone, reset the buffer to immediately respond to door closing
-                if distance < info['min_threshold'] and len(info['readings']) > 0:
-                    avg_distance = sum(info['readings']) / len(info['readings'])
-                    if avg_distance >= info['min_threshold']:
-                        info['readings'] = []
-                        info['exceeded_since'] = None
+                print(f"Sensor {sensor_num} ({info['name']}): {distance} cm")
 
-                # Update running average
-                info['readings'].append(distance)
-                if len(info['readings']) > READINGS_WINDOW:
-                    info['readings'].pop(0)
-
-                # Calculate average
-                avg_distance = sum(info['readings']) / len(info['readings'])
-
-                # Format readings buffer for display
-                readings_str = '[' + ', '.join(f'{r:.1f}' for r in info['readings']) + ']'
-                print(f"Sensor {sensor_num} ({info['name']}): {distance} cm (avg: {avg_distance:.1f} cm, buffer: {readings_str})")
-
-                # Check if average distance is between min and max thresholds
-                if info['min_threshold'] < avg_distance < info['max_threshold']:
+                # Check if distance is between min and max thresholds
+                if info['min_threshold'] < distance < info['max_threshold']:
                     if info['exceeded_since'] is None:
                         info['exceeded_since'] = time.monotonic()
                     elif time.monotonic() - info['exceeded_since'] > THRESHOLD_EXCEEDED_TIME:
-                        print(f"Alert! {info['name']} in warning zone too long!")
+                        print(f"Alert! {info['name']} exceeded threshold too long!")
                         beep(audio_pwm, BEEP_FREQUENCY, BEEP_DURATION, 3)
                         last_alert_details = {
                             'sensor_name': info['name'],
-                            'reason': 'In warning zone too long',
-                            'distance': avg_distance,
+                            'reason': 'Exceeded threshold too long',
+                            'distance': distance,
                             'time': current_time
                         }
                 else:
+                    # As soon as reading is below max_threshold, stop alerting
                     info['exceeded_since'] = None
 
             except Exception as e:
